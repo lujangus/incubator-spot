@@ -20,12 +20,13 @@ package org.apache.spot.netflow
 import org.apache.log4j.Logger
 import org.apache.spark.SparkContext
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, SQLContext, Row, SaveMode}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
 import org.apache.spot.netflow.FlowSchema._
 import org.apache.spot.netflow.model.FlowSuspiciousConnectsModel
 import org.apache.spot.utilities.data.validation.{InvalidDataHandler => dataValidation}
+import org.apache.spark.sql.hive.HiveContext
 
 
 /**
@@ -41,11 +42,57 @@ object FlowSuspiciousConnectsAnalysis {
 
     logger.info("Starting flow suspicious connects analysis.")
 
+    ////////////////////////////////////////////////
+    val hiveContext = new HiveContext(sparkContext)
+    ////////////////////////////////////////////////
+
     val flows : DataFrame = filterAndSelectCleanFlowRecords(inputFlowRecords)
 
 
     logger.info("Identifying outliers")
      val scoredFlowRecords = detectFlowAnomalies(flows, config, sparkContext, sqlContext, logger)
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //Inserted code to save scores
+
+    logger.info("Entering Gustavo planet")
+
+    val newDF = scoredFlowRecords .select(TimeReceived,
+      SourceIP,
+      DestinationIP,
+      SourcePort,
+      DestinationPort,
+      //SourceWord,
+      //DestinationWord,
+      //SourceScore,
+      ///DestinationScore,
+      Score)
+
+    val newWithIndexMapRDD = newDF.orderBy(Score).rdd.zipWithIndex()
+    val newWithIndexRDD = newWithIndexMapRDD.map({case (row: Row, id: Long) => Row.fromSeq(row.toSeq ++ Array(id.toString))})
+
+    val newDFStruct = new StructType(
+      Array(
+        StructField("TimeReceived", StringType),
+        StructField("SourceIP",StringType),
+        StructField("DestinationIP",StringType),
+        StructField("SourcePort",IntegerType),
+        StructField("DestinationPort",IntegerType),
+        //StructField("SourceWord",StringType),
+        //StructField("DestinationWord",StringType),
+        //StructField("SourceScore",DoubleType),
+        //StructField("DestinationScore",DoubleType),
+        StructField("Score",DoubleType),
+        StructField("rank",StringType)))
+
+    val indexDF = hiveContext.createDataFrame(newWithIndexRDD, newDFStruct)
+
+    logger.info(indexDF.count.toString)
+    logger.info("persisting data with ranks")
+    indexDF.write.mode(SaveMode.Overwrite).saveAsTable("`flow_rank`")
+
+    //Inserted code to save scores
+    /////////////////////////////////////////////////////////////////////////////////////
 
 
     val filteredFlowRecords = filterScoredFlowRecords(scoredFlowRecords, config.threshold)
