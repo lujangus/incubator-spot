@@ -18,10 +18,9 @@
 package org.apache.spot.netflow
 
 import org.apache.log4j.Logger
-import org.apache.spark.SparkContext
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.sql.{DataFrame, SparkSession, SaveMode}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
 import org.apache.spot.netflow.FlowSchema._
 import org.apache.spot.netflow.model.FlowSuspiciousConnectsModel
@@ -36,7 +35,7 @@ import org.apache.spot.utilities.data.validation.{InvalidDataHandler => dataVali
 object FlowSuspiciousConnectsAnalysis {
 
 
-  def run(config: SuspiciousConnectsConfig, sparkContext: SparkContext, sqlContext: SQLContext, logger: Logger,
+  def run(config: SuspiciousConnectsConfig, spark: SparkSession, logger: Logger,
           inputFlowRecords: DataFrame)  = {
 
     logger.info("Starting flow suspicious connects analysis.")
@@ -45,7 +44,7 @@ object FlowSuspiciousConnectsAnalysis {
 
 
     logger.info("Identifying outliers")
-     val scoredFlowRecords = detectFlowAnomalies(flows, config, sparkContext, sqlContext, logger)
+     val scoredFlowRecords = detectFlowAnomalies(flows, config, spark, logger)
 
 
     val filteredFlowRecords = filterScoredFlowRecords(scoredFlowRecords, config.threshold)
@@ -57,9 +56,10 @@ object FlowSuspiciousConnectsAnalysis {
 
     val outputFlowRecords = mostSuspiciousFlowRecords.select(OutSchema: _*)
 
+    import spark.implicits._
     logger.info("Netflow  suspicious connects analysis completed.")
     logger.info("Saving results to : " + config.hdfsScoredConnect)
-    outputFlowRecords.map(_.mkString(config.outputDelimiter)).saveAsTextFile(config.hdfsScoredConnect)
+    outputFlowRecords.map(_.mkString(config.outputDelimiter)).rdd.saveAsTextFile(config.hdfsScoredConnect)
 
     val invalidFlowRecords = filterAndSelectInvalidFlowRecords(inputFlowRecords)
     dataValidation.showAndSaveInvalidRecords(invalidFlowRecords, config.hdfsScoredConnect, logger)
@@ -72,21 +72,19 @@ object FlowSuspiciousConnectsAnalysis {
     *
     * @param data Data frame of netflow entries
     * @param config
-    * @param sparkContext
-    * @param sqlContext
+    * @param spark
     * @param logger
     * @return
     */
   def detectFlowAnomalies(data: DataFrame,
                           config: SuspiciousConnectsConfig,
-                          sparkContext: SparkContext,
-                          sqlContext: SQLContext,
+                          spark: SparkSession,
                           logger: Logger): DataFrame = {
     logger.info("Fitting probabilistic model to data")
     val model =
-      FlowSuspiciousConnectsModel.trainModel(sparkContext, sqlContext, logger, config, data)
+      FlowSuspiciousConnectsModel.trainModel(spark, logger, config, data)
     logger.info("Identifying outliers")
-    model.score(sparkContext, sqlContext, data)
+    model.score(spark, data)
   }
 
 

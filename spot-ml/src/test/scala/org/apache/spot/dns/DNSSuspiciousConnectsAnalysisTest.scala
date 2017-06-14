@@ -48,8 +48,8 @@ class DNSSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec with
     maxResults = 1000,
     outputDelimiter = "\t",
     ldaPRGSeed = None,
-    ldaMaxiterations = 20,
-    ldaAlpha = 1.02,
+    ldaMaxiterations = 50,
+    ldaAlpha =  1.02,
     ldaBeta = 1.001)
 
 
@@ -58,10 +58,11 @@ class DNSSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec with
     val logger = LogManager.getLogger("SuspiciousConnectsAnalysis")
     logger.setLevel(Level.WARN)
 
-    val anomalousRecord = DNSInput("May 20 2016 02:10:25.970987000 PDT", 1463735425L, 1, "172.16.9.132", "122.2o7.turner.com", "0x00000001", 1, 0)
+    val anomalousRecord = DNSInput("May 20 2016 02:10:25.970987000 PDT", 1463735425L, 1, "172.16.9.132", "122.2o7" +
+      ".turner.com", "0x00000001", 1, 0)
     val typicalRecord = DNSInput("May 20 2016 02:10:25.970987000 PDT", 1463735425L, 168, "172.16.9.132", "122.2o7.turner.com", "0x00000001", 1, 0)
-    val data = sqlContext.createDataFrame(Seq(anomalousRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord))
-    val scoredData = DNSSuspiciousConnectsAnalysis.scoreDNSRecords(data, testConfig, sparkContext, sqlContext, logger)
+    val data = spark.createDataFrame(Seq(anomalousRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord))
+    val scoredData = DNSSuspiciousConnectsAnalysis.scoreDNSRecords(data, testConfig, spark, logger)
     val anomalyScore = scoredData.filter(scoredData(FrameLength) === 1).first().getAs[Double](Score)
     val typicalScores = scoredData.filter(scoredData(FrameLength) === 168).collect().map(_.getAs[Double](Score))
 
@@ -95,8 +96,8 @@ class DNSSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec with
       "0x00000001",
       1,
       0)
-    val data = sqlContext.createDataFrame(Seq(anomalousRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord))
-    val scoredData = DNSSuspiciousConnectsAnalysis.scoreDNSRecords(data, testConfig, sparkContext, sqlContext, logger)
+    val data = spark.createDataFrame(Seq(anomalousRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord))
+    val scoredData = DNSSuspiciousConnectsAnalysis.scoreDNSRecords(data, testConfig, spark, logger)
     val anomalyScore = scoredData.
       filter(scoredData(QueryName) === "1111111111111111111111111111111111111111111111111111111111111.tinker.turner.com").
       first().
@@ -148,9 +149,9 @@ class DNSSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec with
 
   def testDNSRecords = new {
 
-    val sqlContext = new SQLContext(sparkContext)
 
-    val inputDNSRecordsRDD = sparkContext.parallelize(wrapRefArray(Array(
+
+    val inputDNSRecordsRDD = spark.sparkContext.parallelize(wrapRefArray(Array(
       Seq(null, 1463735425l, 168, "172.16.9.132", "turner.com.122.2o...", "0x00000001", 1, 0),
       Seq("", 1463735425l, 168, "172.16.9.132", "turner.com.122.2o...", "0x00000001", 1, 0),
       Seq("-", 1463735425l, 168, "172.16.9.132", "turner.com.122.2o...", "0x00000001", 1, 0),
@@ -186,9 +187,9 @@ class DNSSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec with
         QueryTypeField,
         QueryResponseCodeField))
 
-    val inputDNSRecordsDF = sqlContext.createDataFrame(inputDNSRecordsRDD, inputDNSRecordsSchema)
+    val inputDNSRecordsDF = spark.createDataFrame(inputDNSRecordsRDD, inputDNSRecordsSchema)
 
-    val scoredDNSRecordsRDD = sparkContext.parallelize(wrapRefArray(Array(
+    val scoredDNSRecordsRDD = spark.sparkContext.parallelize(wrapRefArray(Array(
       Seq("May 20 2016 02:10:25.970987000 PDT", 1463735425l, 168, "172.16.9.132", "turner.com.122.2o...", "0x00000001", 1, 0, 1d),
       Seq("May 20 2016 02:10:25.970987000 PDT", 1463735425l, 168, "172.16.9.132", "turner.com.122.2o...", "0x00000001", 1, 0, 0.0000005),
       Seq("May 20 2016 02:10:25.970987000 PDT", 1463735425l, 168, "172.16.9.132", "turner.com.122.2o...", "0x00000001", 1, 0, 0.05),
@@ -207,7 +208,7 @@ class DNSSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec with
         QueryResponseCodeField,
         ScoreField))
 
-    val scoredDNSRecordsDF = sqlContext.createDataFrame(scoredDNSRecordsRDD, scoredDNSRecordsSchema)
+    val scoredDNSRecordsDF = spark.createDataFrame(scoredDNSRecordsRDD, scoredDNSRecordsSchema)
 
   }
 }

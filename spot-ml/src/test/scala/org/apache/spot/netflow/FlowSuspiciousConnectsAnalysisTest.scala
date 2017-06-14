@@ -35,26 +35,29 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
     inputPath = "",
     feedbackFile = "",
     duplicationFactor = 1,
-    topicCount = 20,
+    topicCount = 3,
     hdfsScoredConnect = "",
     threshold = 1.0d,
     maxResults = 1000,
     outputDelimiter = "\t",
     ldaPRGSeed = None,
     ldaMaxiterations = 20,
-    ldaAlpha = 1.02,
-    ldaBeta = 1.001)
+    ldaAlpha = 1.1,
+    ldaBeta = 1.1)
 
   "netflow suspicious connects" should "correctly identify time-of-day anomalies" in {
 
     val logger = LogManager.getLogger("SuspiciousConnectsAnalysis")
     logger.setLevel(Level.OFF)
 
-    val anomalousRecord = FlowRecord("2016-05-05 00:11:01", 2016, 5, 5, 0, 0, 1, 0.972f, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39, 12522, 0, 0)
-    val typicalRecord = FlowRecord("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972f, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39, 12522, 0, 0)
+    val anomalousRecord = FlowRecord("2016-05-05 00:11:01", 2016, 5, 5, 0, 0, 1, 0.972d, "172.16.0.129", "10.0.2" +
+      ".202", 1024, 80, "TCP", 39, 12522, 0l, 0l)
+    val typicalRecord = FlowRecord("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2" +
+      ".202", 1024, 80, "TCP", 39, 12522, 0l, 0l)
 
 
-    val data = sqlContext.createDataFrame(Seq(anomalousRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord,
+    val data = spark.createDataFrame(Seq(anomalousRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord,
+      typicalRecord,
       typicalRecord, typicalRecord, typicalRecord, typicalRecord))
 
 
@@ -64,10 +67,10 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
 
     logger.info("Fitting probabilistic model to data")
     val model =
-      FlowSuspiciousConnectsModel.trainModel(sparkContext, sqlContext, logger, testConfig, flows)
+      FlowSuspiciousConnectsModel.trainModel(spark, logger, testConfig, flows)
 
     logger.info("Identifying outliers")
-    val scoredData = model.score(sparkContext, sqlContext, flows)
+    val scoredData = model.score(spark, flows)
 
 
     val anomalyScore = scoredData.filter(scoredData(Hour) === 0).first().getAs[Double](Score)
@@ -85,11 +88,7 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
     Math.abs(typicalScores(7) - 0.9d) should be < 0.01
     Math.abs(typicalScores(8) - 0.9d) should be < 0.01
 
-
   }
-
-
-
 
 
   "netflow suspicious connects" should "correctly identify time-of-day anomalies with testing config" in {
@@ -104,18 +103,21 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
       maxResults = 1000,
       outputDelimiter = "\t",
       ldaPRGSeed = None,
-      ldaMaxiterations = 20,
-      ldaAlpha = 1.02,
+      ldaMaxiterations = 50,
+      ldaAlpha =  1.02,
       ldaBeta = 1.001)
 
     val logger = LogManager.getLogger("SuspiciousConnectsAnalysis")
     logger.setLevel(Level.INFO)
 
-    val anomalousRecord = FlowRecord("2016-05-05 00:11:01", 2016, 5, 5, 0, 0, 1, 0.972f, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39, 12522, 0, 0)
-    val typicalRecord = FlowRecord("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972f, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39, 12522, 0, 0)
+    val anomalousRecord = FlowRecord("2016-05-05 00:11:01", 2016, 5, 5, 0, 0, 1, 0.972d, "172.16.0.129", "10.0.2" +
+      ".202", 1024, 80, "TCP", 39, 12522, 0l, 0l)
+    val typicalRecord = FlowRecord("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2" +
+      ".202", 1024, 80, "TCP", 39, 12522, 0l, 0l)
 
 
-    val data = sqlContext.createDataFrame(Seq(anomalousRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord,
+    val data = spark.createDataFrame(Seq(anomalousRecord, typicalRecord, typicalRecord, typicalRecord, typicalRecord,
+      typicalRecord,
       typicalRecord, typicalRecord, typicalRecord, typicalRecord))
 
 
@@ -125,10 +127,10 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
 
     logger.info("Fitting probabilistic model to data")
     val model =
-      FlowSuspiciousConnectsModel.trainModel(sparkContext, sqlContext, logger, testConfig2, flows)
+      FlowSuspiciousConnectsModel.trainModel(spark, logger, testConfig2, flows)
 
     logger.info("Identifying outliers")
-    val scoredData = model.score(sparkContext, sqlContext, flows)
+    val scoredData = model.score(spark, flows)
 
     val anomalyScore = scoredData.filter(scoredData(Hour) === 0).first().getAs[Double](Score)
     val typicalScores = scoredData.filter(scoredData(Hour) === 13).collect().map(_.getAs[Double](Score))
@@ -179,24 +181,37 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
   }
 
   def testFlowRecords = new {
-    val sqlContext = new SQLContext(sparkContext)
 
-    val inputFlowRecordsRDD = sparkContext.parallelize(wrapRefArray(Array(
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 24, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 60, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 60, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq(null, 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, null, "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", null, 1024, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", null, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, null, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", null, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, null, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, null, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, null),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0))
+    val inputFlowRecordsRDD = spark.sparkContext.parallelize(wrapRefArray(Array(
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 24, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 60, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 60, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l),
+      Seq(null, 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, null, "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0l,
+        0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", null, 1024, 80, "TCP", 39l, 12522l,
+        0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", null, 80, "TCP", 39l,
+        12522l, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, null, "TCP",
+        39l, 12522l, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", null,
+        12522l, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        null, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, null, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, null),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l))
       .map(row => Row.fromSeq(row))))
 
     val inputFlowRecordsSchema = StructType(
@@ -218,14 +233,19 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
         OpktField,
         ObytField))
 
-    val inputFlowRecordsDF = sqlContext.createDataFrame(inputFlowRecordsRDD, inputFlowRecordsSchema)
+    val inputFlowRecordsDF = spark.createDataFrame(inputFlowRecordsRDD, inputFlowRecordsSchema)
 
-    val scoredFlowRecordsRDD = sparkContext.parallelize(wrapRefArray(Array(
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0, -1d),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0, 1d),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0, 0.0000005),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0, 0.05),
-      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l, 12522l, 0, 0, 0.0001))
+    val scoredFlowRecordsRDD = spark.sparkContext.parallelize(wrapRefArray(Array(
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l, -1d),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l, 1d),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l, 0.0000005),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l, 0.05),
+      Seq("2016-05-05 13:54:58", 2016, 5, 5, 13, 54, 58, 0.972d, "172.16.0.129", "10.0.2.202", 1024, 80, "TCP", 39l,
+        12522l, 0l, 0l, 0.0001))
       .map(row => Row.fromSeq(row))))
 
     val scoredFlowRecordsSchema = StructType(
@@ -248,7 +268,7 @@ class FlowSuspiciousConnectsAnalysisTest extends TestingSparkContextFlatSpec wit
         ObytField,
         ScoreField))
 
-    val scoredFlowRecordsDF = sqlContext.createDataFrame(scoredFlowRecordsRDD, scoredFlowRecordsSchema)
+    val scoredFlowRecordsDF = spark.createDataFrame(scoredFlowRecordsRDD, scoredFlowRecordsSchema)
   }
 
 }

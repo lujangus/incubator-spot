@@ -22,26 +22,26 @@
 
 package org.apache.spot.testutils
 
-import org.apache.spark.SparkContext
-import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.{SparkSession}
 import org.scalatest.{BeforeAndAfterAll, WordSpec}
 
 trait TestingSparkContextWordSpec extends WordSpec with BeforeAndAfterAll {
 
-  var sparkContext: SparkContext = null
-  var sqlContext : SQLContext = null
+
+  var spark: SparkSession = null
 
   override def beforeAll() = {
-    sparkContext = TestingSparkContext.sparkContext
-    sqlContext = new SQLContext(sparkContext)
+    spark = SparkSession.builder().appName("spot-ml-testing")
+      .master("local")
+      .config("", "")
+      .getOrCreate()
   }
 
   /**
-   * Clean up after the test is done
-   */
+    * Clean up after the test is done
+    */
   override def afterAll() = {
-    TestingSparkContext.cleanUp()
-    sparkContext = null
+    spark.stop()
   }
 
 }

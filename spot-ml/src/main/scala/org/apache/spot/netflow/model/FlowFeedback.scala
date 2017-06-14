@@ -17,9 +17,8 @@
 
 package org.apache.spot.netflow.model
 
-import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spot.netflow.model.FlowSuspiciousConnectsModel._
 import scala.io.Source
 
@@ -33,14 +32,12 @@ object FlowFeedback {
   /**
     * Load the feedback file for netflow data.
     *
-    * @param sc                Spark context.
-    * @param sqlContext        Spark SQL context.
+    * @param spark             SparkSession
     * @param feedbackFile      Local machine path to the netflow feedback file.
     * @param duplicationFactor Number of words to create per flagged feedback entry.
     * @return DataFrame of the feedback events.
     */
-  def loadFeedbackDF(sc: SparkContext,
-                     sqlContext: SQLContext,
+  def loadFeedbackDF(spark: SparkSession,
                      feedbackFile: String,
                      duplicationFactor: Int): DataFrame = {
 
@@ -52,7 +49,7 @@ object FlowFeedback {
       */
 
       val lines = Source.fromFile(feedbackFile).getLines().toArray.drop(1)
-      val feedback: RDD[String] = sc.parallelize(lines)
+      val feedback: RDD[String] = spark.sparkContext.parallelize(lines)
 
       /*
          flow_scores.csv - feedback file structure
@@ -81,7 +78,7 @@ object FlowFeedback {
       val MinuteIndex = 21
       val SecondIndex = 22
 
-      sqlContext.createDataFrame(feedback.map(_.split("\t"))
+      spark.createDataFrame(feedback.map(_.split("\t"))
         .filter(row => row(ScoreIndex).trim.toInt == 3)
         .map(row => Row.fromSeq(Seq(
           row(TimeStartIndex).split(" ")(1).split(":")(0).trim.toInt, // hour
@@ -97,7 +94,7 @@ object FlowFeedback {
         .select(ModelColumns: _*)
 
     } else {
-      sqlContext.createDataFrame(sc.emptyRDD[Row], ModelSchema)
+      spark.createDataFrame(spark.sparkContext.emptyRDD[Row], ModelSchema)
     }
   }
 }

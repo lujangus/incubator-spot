@@ -18,12 +18,11 @@
 package org.apache.spot.dns.model
 
 import org.apache.log4j.Logger
-import org.apache.spark.SparkContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
 import org.apache.spot.dns.DNSSchema._
 import org.apache.spot.dns.DNSWordCreation
@@ -81,18 +80,17 @@ class DNSSuspiciousConnectsModel(inTopicCount: Int,
     * Use a suspicious connects model to assign estimated probabilities to a dataframe of
     * DNS log events.
     *
-    * @param sc         Spark Context
-    * @param sqlContext Spark SQL context
+    * @param spark      Spark Session
     * @param inDF       Dataframe of DNS log events, containing at least the columns of [[DNSSuspiciousConnectsModel.ModelSchema]]
     * @param userDomain Domain associated to network data (ex: 'intel')
     * @return Dataframe with a column named [[org.apache.spot.dns.DNSSchema.Score]] that contains the
     *         probability estimated for the network event at that row
     */
-  def score(sc: SparkContext, sqlContext: SQLContext, inDF: DataFrame, userDomain: String): DataFrame = {
+  def score(spark: SparkSession, inDF: DataFrame, userDomain: String): DataFrame = {
 
-    val topDomainsBC = sc.broadcast(TopDomains.TopDomains)
-    val ipToTopicMixBC = sc.broadcast(ipToTopicMix)
-    val wordToPerTopicProbBC = sc.broadcast(wordToPerTopicProb)
+    val topDomainsBC = spark.sparkContext.broadcast(TopDomains.TopDomains)
+    val ipToTopicMixBC = spark.sparkContext.broadcast(ipToTopicMix)
+    val wordToPerTopicProbBC = spark.sparkContext.broadcast(wordToPerTopicProb)
 
 
     val scoreFunction =
@@ -152,8 +150,7 @@ object DNSSuspiciousConnectsModel {
   /**
     * Create a new DNS Suspicious Connects model by training it on a data frame and a feedback file.
     *
-    * @param sparkContext
-    * @param sqlContext
+    * @param spark
     * @param logger
     * @param config       Analysis configuration object containing CLI parameters.
     *                     Contains the path to the feedback file in config.scoresFile
@@ -161,8 +158,7 @@ object DNSSuspiciousConnectsModel {
     * @param topicCount   Number of topics (traffic profiles) used to build the model.
     * @return A new [[DNSSuspiciousConnectsModel]] instance trained on the dataframe and feedback file.
     */
-  def trainNewModel(sparkContext: SparkContext,
-                    sqlContext: SQLContext,
+  def trainNewModel(spark: SparkSession,
                     logger: Logger,
                     config: SuspiciousConnectsConfig,
                     inputRecords: DataFrame,
@@ -172,13 +168,12 @@ object DNSSuspiciousConnectsModel {
 
     val selectedRecords = inputRecords.select(modelColumns: _*)
 
-    val totalRecords = selectedRecords.unionAll(DNSFeedback.loadFeedbackDF(sparkContext,
-      sqlContext,
+    val totalRecords = selectedRecords.union(DNSFeedback.loadFeedbackDF(spark,
       config.feedbackFile,
       config.duplicationFactor))
 
-    val countryCodesBC = sparkContext.broadcast(CountryCodes.CountryCodes)
-    val topDomainsBC = sparkContext.broadcast(TopDomains.TopDomains)
+    val countryCodesBC = spark.sparkContext.broadcast(CountryCodes.CountryCodes)
+    val topDomainsBC = spark.sparkContext.broadcast(TopDomains.TopDomains)
     val userDomain = config.userDomain
 
     // create quantile cut-offs
@@ -209,7 +204,7 @@ object DNSSuspiciousConnectsModel {
           }
         }))
 
-    val domainStatsRecords = createDomainStatsDF(sparkContext, sqlContext, countryCodesBC, topDomainsBC, userDomain, totalRecords)
+    val domainStatsRecords = createDomainStatsDF(spark, countryCodesBC, topDomainsBC, userDomain, totalRecords)
 
     val subdomainLengthCuts =
       Quantiles.computeQuintiles(domainStatsRecords
@@ -265,18 +260,19 @@ object DNSSuspiciousConnectsModel {
 
     val dataWithWord = totalRecords.withColumn(Word, dnsWordCreator.wordCreationUDF(modelColumns: _*))
 
+    import spark.implicits._
     // aggregate per-word counts at each IP
     val ipDstWordCounts =
       dataWithWord
         .select(ClientIP, Word)
         .filter(dataWithWord(Word).notEqual(InvalidDataHandler.WordError))
         .map({ case Row(destIP: String, word: String) => (destIP, word) -> 1 })
+        .rdd
         .reduceByKey(_ + _)
         .map({ case ((ipDst, word), count) => SpotLDAInput(ipDst, word, count) })
 
 
-    val SpotLDAOutput(ipToTopicMixDF, wordToPerTopicProb) = SpotLDAWrapper.runLDA(sparkContext,
-      sqlContext,
+    val SpotLDAOutput(ipToTopicMixDF, wordToPerTopicProb) = SpotLDAWrapper.runLDA(spark,
       ipDstWordCounts,
       config.topicCount,
       logger,
@@ -311,8 +307,7 @@ object DNSSuspiciousConnectsModel {
   /**
     * Add  domain statistics fields to a data frame.
     *
-    * @param sparkContext   Spark context.
-    * @param sqlContext     Spark SQL context.
+    * @param spark SparkSession
     * @param countryCodesBC Broadcast of the country codes set.
     * @param topDomainsBC   Broadcast of the most-popular domains set.
     * @param userDomain     Domain associated to network data (ex: 'intel')
@@ -320,8 +315,7 @@ object DNSSuspiciousConnectsModel {
     * @return A new dataframe with the new columns added. The new columns have the schema [[DomainStatsSchema]]
     */
 
-  def createDomainStatsDF(sparkContext: SparkContext,
-                          sqlContext: SQLContext,
+  def createDomainStatsDF(spark: SparkSession,
                           countryCodesBC: Broadcast[Set[String]],
                           topDomainsBC: Broadcast[Set[String]],
                           userDomain: String,
@@ -332,7 +326,7 @@ object DNSSuspiciousConnectsModel {
     val domainStatsRDD: RDD[Row] = inDF.rdd.map(row =>
       Row.fromTuple(createTempFields(countryCodesBC, topDomainsBC, userDomain, row.getString(queryNameIndex))))
 
-    sqlContext.createDataFrame(domainStatsRDD, DomainStatsSchema)
+    spark.createDataFrame(domainStatsRDD, DomainStatsSchema)
   }
 
 

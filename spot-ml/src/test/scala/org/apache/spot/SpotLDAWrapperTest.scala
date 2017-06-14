@@ -18,10 +18,10 @@
 package org.apache.spot
 
 import org.apache.log4j.{Level, LogManager}
-import org.apache.spark.mllib.linalg.{Matrices, Vector, Vectors}
+import org.apache.spark.ml.linalg.{Matrices, Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spot.lda.SpotLDAWrapperSchema._
 import org.apache.spot.lda.SpotLDAWrapper
 import org.apache.spot.lda.SpotLDAWrapper._
@@ -34,7 +34,7 @@ class SpotLDAWrapperTest extends TestingSparkContextFlatSpec with Matchers {
 
     val ldaAlpha = 1.02
     val ldaBeta = 1.001
-    val ldaMaxiterations = 20
+    val ldaMaxiterations = 50
 
     "SparkLDA" should "handle an extremely unbalanced two word doc" in {
       val logger = LogManager.getLogger("SuspiciousConnectsAnalysis")
@@ -43,8 +43,8 @@ class SpotLDAWrapperTest extends TestingSparkContextFlatSpec with Matchers {
       val catFancy = SpotLDAInput("pets", "cat", 1)
       val dogWorld = SpotLDAInput("pets", "dog", 999)
 
-      val data = sparkContext.parallelize(Seq(catFancy, dogWorld))
-      val out = SpotLDAWrapper.runLDA(sparkContext, sqlContext, data, 2, logger, Some(0xdeadbeef), ldaAlpha, ldaBeta, ldaMaxiterations)
+      val data = spark.sparkContext.parallelize(Seq(catFancy, dogWorld))
+      val out = SpotLDAWrapper.runLDA(spark, data, 2, logger, Some(0xdeadbeef), ldaAlpha, ldaBeta, ldaMaxiterations)
 
       val topicMixDF = out.docToTopicMix
 
@@ -60,11 +60,11 @@ class SpotLDAWrapperTest extends TestingSparkContextFlatSpec with Matchers {
     "SparkLDA" should "handle distinct docs on distinct words" in {
       val logger = LogManager.getLogger("SuspiciousConnectsAnalysis")
       logger.setLevel(Level.WARN)
-      val catFancy = SpotLDAInput("cat fancy", "cat", 1)
-      val dogWorld = SpotLDAInput("dog world", "dog", 1)
+      val catFancy = SpotLDAInput("cat fancy", "cat", 100)
+      val dogWorld = SpotLDAInput("dog world", "dog", 100)
 
-      val data = sparkContext.parallelize(Seq(catFancy, dogWorld))
-      val out = SpotLDAWrapper.runLDA(sparkContext, sqlContext, data, 2, logger, Some(0xdeadbeef), ldaAlpha, ldaBeta, ldaMaxiterations)
+      val data = spark.sparkContext.parallelize(Seq(catFancy, dogWorld))
+      val out = SpotLDAWrapper.runLDA(spark, data, 2, logger, Some(0xdeadbeef), ldaAlpha, ldaBeta, ldaMaxiterations)
 
       val topicMixDF = out.docToTopicMix
       var dogTopicMix: Array[Double] =
@@ -76,57 +76,63 @@ class SpotLDAWrapperTest extends TestingSparkContextFlatSpec with Matchers {
       val catTopics = out.wordResults("cat")
       val dogTopics = out.wordResults("dog")
 
-      Math.abs(1 - (catTopicMix(0) * catTopics(0) + catTopicMix(1) * catTopics(1))) should be < 0.01
-      Math.abs(1 - (dogTopicMix(0) * dogTopics(0) + dogTopicMix(1) * dogTopics(1))) should be < 0.01
+      Math.abs(1 - (catTopicMix(0) * catTopics(0) + catTopicMix(1) * catTopics(1))) should be < 0.02
+      Math.abs(1 - (dogTopicMix(0) * dogTopics(0) + dogTopicMix(1) * dogTopics(1))) should be < 0.02
     }
 
     "formatSparkLDAInput" should "return input in RDD[(Long, Vector)] (collected as Array for testing) format. The index " +
       "is the docID, values are the vectors of word occurrences in that doc" in {
 
 
-      val documentWordData = sparkContext.parallelize(Seq(SpotLDAInput("192.168.1.1", "333333_7.0_0.0_1.0", 8),
+      val documentWordData = spark.sparkContext.parallelize(Seq(SpotLDAInput("192.168.1.1", "333333_7.0_0.0_1.0", 8),
         SpotLDAInput("10.10.98.123", "1111111_6.0_3.0_5.0", 4),
         SpotLDAInput("66.23.45.11", "-1_43_7.0_2.0_6.0", 2),
         SpotLDAInput("192.168.1.1", "-1_80_6.0_1.0_1.0", 5)))
 
       val wordDictionary = Map("333333_7.0_0.0_1.0" -> 0, "1111111_6.0_3.0_5.0" -> 1, "-1_43_7.0_2.0_6.0" -> 2, "-1_80_6.0_1.0_1.0" -> 3)
 
-      val documentDictionary: DataFrame = sqlContext.createDataFrame(documentWordData
+      val documentDictionary: DataFrame = spark.createDataFrame(documentWordData
           .map({ case SpotLDAInput(doc, word, count) => doc })
           .distinct
           .zipWithIndex.map({case (d,c) => Row(d,c)}), StructType(List(DocumentNameField, DocumentNumberField)))
 
 
-      val sparkLDAInput: RDD[(Long, Vector)] = SpotLDAWrapper.formatSparkLDAInput(documentWordData, documentDictionary, wordDictionary, sqlContext)
+      val sparkLDAInput: RDD[(Long, Vector)] = SpotLDAWrapper.formatSparkLDAInput(documentWordData,
+        documentDictionary, wordDictionary, spark)
       val sparkLDAInArr: Array[(Long, Vector)] = sparkLDAInput.collect()
 
-      sparkLDAInArr shouldBe Array((0, Vectors.sparse(4, Array(0, 3), Array(8.0, 5.0))), (2, Vectors.sparse(4, Array(2), Array(2.0))), (1, Vectors.sparse(4, Array(1), Array(4.0))))
+      sparkLDAInArr shouldBe Array((0, Vectors.sparse(4, Array(0, 3), Array(8.0, 5.0))), (1, Vectors.sparse(4, Array
+      (1), Array(4.0))), (2, Vectors.sparse(4, Array(2), Array(2.0))))
     }
 
     "formatSparkLDADocTopicOuptut" should "return RDD[(String,Array(Double))] after converting doc results from vector: " +
       "convert docID back to string, convert vector of probabilities to array" in {
 
 
-      val documentWordData = sparkContext.parallelize(Seq(SpotLDAInput("192.168.1.1", "333333_7.0_0.0_1.0", 8),
+      val documentWordData = spark.sparkContext.parallelize(Seq(SpotLDAInput("192.168.1.1", "333333_7.0_0.0_1.0", 8),
         SpotLDAInput("10.10.98.123", "1111111_6.0_3.0_5.0", 4),
         SpotLDAInput("66.23.45.11", "-1_43_7.0_2.0_6.0", 2),
         SpotLDAInput("192.168.1.1", "-1_80_6.0_1.0_1.0", 5)))
 
-      val documentDictionary: DataFrame = sqlContext.createDataFrame(documentWordData
+      val documentDictionary: DataFrame = spark.createDataFrame(documentWordData
           .map({ case SpotLDAInput(doc, word, count) => doc })
           .distinct
           .zipWithIndex.map({case (d,c) => Row(d,c)}), StructType(List(DocumentNameField, DocumentNumberField)))
 
-      val docTopicDist: RDD[(Long, Vector)] = sparkContext.parallelize(Array((0.toLong, Vectors.dense(0.15, 0.3, 0.5, 0.05)), (1.toLong,
-        Vectors.dense(0.25, 0.15, 0.4, 0.2)), (2.toLong, Vectors.dense(0.4, 0.1, 0.3, 0.2))))
+      import internalImplicits._
+      val docTopicDist: DataFrame = spark.sparkContext.parallelize(Array((0.toLong, Vectors.dense(0.15,
+        0.3, 0.5, 0.05)), (1.toLong,
+        Vectors.dense(0.25, 0.15, 0.4, 0.2)), (2.toLong, Vectors.dense(0.4, 0.1, 0.3, 0.2)))).toDF()
 
-      val sparkDocRes: DataFrame = formatSparkLDADocTopicOutput(docTopicDist, documentDictionary, sqlContext)
+      val sparkDocRes: DataFrame = formatSparkLDADocTopicOutput(docTopicDist, documentDictionary, spark)
 
+      import internalImplicits._
       val documents = sparkDocRes.select(DocumentName).map(documentName => documentName.toString.replaceAll("\\[", "").replaceAll("\\]", "")).collect()
 
-      documents(0) should be("10.10.98.123")
-      documents(1) should be("192.168.1.1")
+      documents(0) should be("192.168.1.1")
+      documents(1) should be("10.10.98.123")
       documents(2) should be("66.23.45.11")
+
     }
 
     "formatSparkLDAWordOutput" should "return Map[Int,String] after converting word matrix to sequence, wordIDs back to strings, and sequence of probabilities to array" in {

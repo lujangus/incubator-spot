@@ -18,10 +18,9 @@
 package org.apache.spot.proxy
 
 import org.apache.log4j.Logger
-import org.apache.spark.SparkContext
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, SparkSession, Row, SaveMode}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
 import org.apache.spot.proxy.ProxySchema._
 import org.apache.spot.utilities.data.validation.{InvalidDataHandler => dataValidation}
@@ -35,18 +34,54 @@ object ProxySuspiciousConnectsAnalysis {
     * Run suspicious connections analysis on proxy data.
     *
     * @param config       SuspicionConnectsConfig object, contains runtime parameters from CLI.
-    * @param sparkContext Apache Spark context.
-    * @param sqlContext   Spark SQL context.
+    * @param spark        SparkSession
     * @param logger       Logs execution progress, information and errors for user.
     */
-  def run(config: SuspiciousConnectsConfig, sparkContext: SparkContext, sqlContext: SQLContext, logger: Logger,
+  def run(config: SuspiciousConnectsConfig, spark: SparkSession, logger: Logger,
           inputProxyRecords: DataFrame) = {
 
     logger.info("Starting proxy suspicious connects analysis.")
 
     val cleanProxyRecords = filterAndSelectCleanProxyRecords(inputProxyRecords)
 
-    val scoredProxyRecords = detectProxyAnomalies(cleanProxyRecords, config, sparkContext, sqlContext, logger)
+    val scoredProxyRecords = detectProxyAnomalies(cleanProxyRecords, config, spark, logger)
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //Inserted code to save scores
+
+    logger.info("Entering Gustavo planet")
+
+    val newDF = scoredProxyRecords.select(Date, Time, ClientIP, Host, ReqMethod, Duration, ServerIP, SCBytes, CSBytes, Score, Word)
+    val newWithIndexMapRDD = newDF.orderBy(Score).rdd.zipWithIndex()
+    val newWithIndexRDD = newWithIndexMapRDD.map({case (row: Row, id: Long) => Row.fromSeq(row.toSeq ++ Array(id.toString))})
+
+
+    val newDFStruct = new StructType(
+      Array(
+        StructField("date", StringType),
+        StructField("time", StringType),
+        StructField("clientIp",StringType),
+        StructField("host",StringType),
+        StructField("reqMethod",StringType),
+        StructField("duration",IntegerType),
+        StructField("serverIp",StringType),
+        StructField("scbytes",IntegerType),
+        StructField("csbytes",IntegerType),
+        StructField("score",DoubleType),
+        StructField("word",StringType),
+        StructField("rank",StringType)))
+
+    val indexDF = spark.createDataFrame(newWithIndexRDD, newDFStruct)
+
+    logger.info(indexDF.count.toString)
+    logger.info("persisting data with indexes")
+
+    indexDF.createOrReplaceTempView("proxy_rank")
+    spark.sql("DROP TABLE IF EXISTS proxy_spark21")
+    spark.table("proxy_rank").write.saveAsTable("proxy_rank")
+
+    //Inserted code to save scores
+    /////////////////////////////////////////////////////////////////////////////////////
 
 
     // take the maxResults least probable events of probability below the threshold and sort
@@ -61,7 +96,9 @@ object ProxySuspiciousConnectsAnalysis {
 
     logger.info("Proxy suspicious connects analysis completed")
     logger.info("Saving results to: " + config.hdfsScoredConnect)
-    outputProxyRecords.map(_.mkString(config.outputDelimiter)).saveAsTextFile(config.hdfsScoredConnect)
+
+    import spark.implicits._
+    outputProxyRecords.map(_.mkString(config.outputDelimiter)).rdd.saveAsTextFile(config.hdfsScoredConnect)
 
     val invalidProxyRecords = filterAndSelectInvalidProxyRecords(inputProxyRecords)
     dataValidation.showAndSaveInvalidRecords(invalidProxyRecords, config.hdfsScoredConnect, logger)
@@ -75,23 +112,21 @@ object ProxySuspiciousConnectsAnalysis {
     *
     * @param data Data frame of proxy entries
     * @param config
-    * @param sparkContext
-    * @param sqlContext
+    * @param spark
     * @param logger
     * @return
     */
   def detectProxyAnomalies(data: DataFrame,
                            config: SuspiciousConnectsConfig,
-                           sparkContext: SparkContext,
-                           sqlContext: SQLContext,
+                           spark: SparkSession,
                            logger: Logger): DataFrame = {
 
 
     logger.info("Fitting probabilistic model to data")
-    val model = ProxySuspiciousConnectsModel.trainNewModel(sparkContext, sqlContext, logger, config, data)
+    val model = ProxySuspiciousConnectsModel.trainNewModel(spark, logger, config, data)
     logger.info("Identifying outliers")
 
-    model.score(sparkContext, data)
+    model.score(spark, data)
   }
 
   /**

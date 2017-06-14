@@ -21,7 +21,7 @@ import org.apache.log4j.Logger
 import org.apache.spark.SparkContext
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.sql.{DataFrame, SparkSession, SaveMode}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
 import org.apache.spot.dns.DNSSchema._
 import org.apache.spot.dns.model.DNSSuspiciousConnectsModel
@@ -43,11 +43,10 @@ object DNSSuspiciousConnectsAnalysis {
     * Saves the most suspicious connections to a CSV file on HDFS.
     *
     * @param config Object encapsulating runtime parameters and CLI options.
-    * @param sparkContext
-    * @param sqlContext
+    * @param spark
     * @param logger
     */
-  def run(config: SuspiciousConnectsConfig, sparkContext: SparkContext, sqlContext: SQLContext, logger: Logger,
+  def run(config: SuspiciousConnectsConfig, spark: SparkSession, logger: Logger,
           inputDNSRecords: DataFrame) = {
 
 
@@ -55,7 +54,7 @@ object DNSSuspiciousConnectsAnalysis {
 
     val cleanDNSRecords = filterAndSelectCleanDNSRecords(inputDNSRecords)
 
-    val scoredDNSRecords = scoreDNSRecords(cleanDNSRecords, config, sparkContext, sqlContext, logger)
+    val scoredDNSRecords = scoreDNSRecords(cleanDNSRecords, config, spark, logger)
 
     val filteredDNSRecords = filterScoredDNSRecords(scoredDNSRecords, config.threshold)
 
@@ -68,7 +67,8 @@ object DNSSuspiciousConnectsAnalysis {
     logger.info("DNS  suspicious connects analysis completed.")
     logger.info("Saving results to : " + config.hdfsScoredConnect)
 
-    outputDNSRecords.map(_.mkString(config.outputDelimiter)).saveAsTextFile(config.hdfsScoredConnect)
+    import spark.implicits._
+    outputDNSRecords.map(_.mkString(config.outputDelimiter)).rdd.saveAsTextFile(config.hdfsScoredConnect)
 
     val invalidDNSRecords = filterAndSelectInvalidDNSRecords(inputDNSRecords)
     dataValidation.showAndSaveInvalidRecords(invalidDNSRecords, config.hdfsScoredConnect, logger)
@@ -83,23 +83,21 @@ object DNSSuspiciousConnectsAnalysis {
     *
     * @param data Data frame of DNS entries
     * @param config
-    * @param sparkContext
-    * @param sqlContext
+    * @param spark
     * @param logger
     * @return
     */
 
   def scoreDNSRecords(data: DataFrame, config: SuspiciousConnectsConfig,
-                      sparkContext: SparkContext,
-                      sqlContext: SQLContext,
+                      spark: SparkSession,
                       logger: Logger) : DataFrame = {
 
     logger.info("Fitting probabilistic model to data")
     val model =
-      DNSSuspiciousConnectsModel.trainNewModel(sparkContext, sqlContext, logger, config, data, config.topicCount)
+      DNSSuspiciousConnectsModel.trainNewModel(spark, logger, config, data, config.topicCount)
 
     logger.info("Identifying outliers")
-    model.score(sparkContext, sqlContext, data, config.userDomain)
+    model.score(spark, data, config.userDomain)
   }
 
 

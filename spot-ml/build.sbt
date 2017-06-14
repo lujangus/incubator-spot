@@ -19,17 +19,22 @@ name := "spot-ml"
 
 version := "1.1"
 
-scalaVersion := "2.10.6"
+scalaVersion := "2.11.8"
+
+val sparkVersion = "2.1.0"
 
 import AssemblyKeys._
 
 assemblySettings
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % "1.6.0"
-libraryDependencies += "org.apache.spark" %% "spark-mllib" % "1.6.0"
-libraryDependencies += "org.apache.spark" %% "spark-sql" % "1.6.0"
-libraryDependencies += "org.scalatest" % "scalatest_2.10" % "2.2.6"
+libraryDependencies += "org.apache.spark" %% "spark-core" % sparkVersion % "provided"
+libraryDependencies += "org.apache.spark" %% "spark-mllib" % sparkVersion
+libraryDependencies += "org.apache.spark" %% "spark-sql" % sparkVersion % "provided"
+libraryDependencies += "org.scalatest" % "scalatest_2.11" % "2.2.6"
 libraryDependencies += "com.github.scopt" %% "scopt" % "3.5.0"
+////////////////////////
+libraryDependencies += "org.apache.spark" %% "spark-hive" % sparkVersion % "provided"
+////////////////////////
 
 resolvers += Resolver.sonatypeRepo("public")
 
@@ -43,10 +48,15 @@ mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) => {
   case PathList("org", "apache", "spark", xs@_*) => MergeStrategy.last
   case PathList("javax", "xml", xs@_*) => MergeStrategy.last
   case "about.html" => MergeStrategy.rename
+  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case x => MergeStrategy.first
   case meta(_) => MergeStrategy.discard
   case x => old(x)
 }
 }
 
+
 // super important with multiple tests running spark Contexts
 parallelExecution in Test := false
+
+test in assembly := {}

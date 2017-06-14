@@ -18,13 +18,11 @@
 package org.apache.spot.lda
 
 import org.apache.log4j.Logger
-import org.apache.spark.SparkContext
-import org.apache.spark.mllib.clustering.{DistributedLDAModel, EMLDAOptimizer, LDA}
-import org.apache.spark.mllib.linalg.{Matrix, Vector, Vectors}
+import org.apache.spark.ml.clustering.{DistributedLDAModel, LDA, LDAModel}
+import org.apache.spark.ml.linalg.{Matrix, Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{DataFrame, Row, SQLContext}
-
+import org.apache.spark.sql.{DataFrame, Dataset, Row, SparkSession}
 import SpotLDAWrapperSchema._
 
 import scala.collection.immutable.Map
@@ -45,8 +43,7 @@ object SpotLDAWrapper {
   case class SpotLDAOutput(docToTopicMix: DataFrame, wordResults: Map[String, Array[Double]])
 
 
-  def runLDA(sparkContext: SparkContext,
-             sqlContext: SQLContext,
+  def runLDA(spark: SparkSession,
              docWordCount: RDD[SpotLDAInput],
              topicCount: Int,
              logger: Logger,
@@ -55,7 +52,7 @@ object SpotLDAWrapper {
              ldaBeta: Double,
              maxIterations: Int): SpotLDAOutput = {
 
-    import sqlContext.implicits._
+    import spark.implicits._
 
     val docWordCountCache = docWordCount.cache()
 
@@ -79,16 +76,17 @@ object SpotLDAWrapper {
       .cache
 
     //Structure corpus so that the index is the docID, values are the vectors of word occurrences in that doc
-    val ldaCorpus: RDD[(Long, Vector)] =
+    val ldaCorpus: DataFrame =
       formatSparkLDAInput(docWordCountCache,
         documentDictionary,
         wordDictionary,
-        sqlContext)
+        spark).toDF("label","features")
+
 
     docWordCountCache.unpersist()
 
     //Instantiate optimizer based on input
-    val optimizer = new EMLDAOptimizer
+//    val optimizer = new EMLDAOptimizer
 
     logger.info(s"Running Spark LDA with params alpha = $ldaAlpha beta = $ldaBeta " +
       s"Max iterations = $maxIterations Optimizer = em")
@@ -97,10 +95,10 @@ object SpotLDAWrapper {
     val lda =
       new LDA()
         .setK(topicCount)
-        .setMaxIterations(maxIterations)
-        .setAlpha(ldaAlpha)
-        .setBeta(ldaBeta)
-        .setOptimizer(optimizer)
+        .setMaxIter(maxIterations)
+        .setTopicConcentration(ldaBeta)
+        .setDocConcentration(ldaAlpha)
+        .setOptimizer("em")
 
     // If caller does not provide seed to lda, ie. ldaSeed is empty, lda is seeded automatically set to hash value of class name
 
@@ -108,22 +106,25 @@ object SpotLDAWrapper {
       lda.setSeed(ldaSeed.get)
     }
 
-
     //Create LDA model
-    val ldaModel = lda.run(ldaCorpus)
+    val ldaModel: LDAModel = lda.fit(ldaCorpus)
 
     //Convert to DistributedLDAModel to expose info about topic distribution
-    val distLDAModel = ldaModel.asInstanceOf[DistributedLDAModel]
+    //val distLDAModel = ldaModel.asInstanceOf[DistributedLDAModel]
 
     //Get word topic mix: columns = topic (in no guaranteed order), rows = words (# rows = vocab size)
-    val wordTopicMat: Matrix = distLDAModel.topicsMatrix
+    val wordTopicMat: Matrix = ldaModel.topicsMatrix
+
+    val ldaTransformed = ldaModel.transform(ldaCorpus)
 
     //Topic distribution: for each document, return distribution (vector) over topics for that docs
-    val docTopicDist: RDD[(Long, Vector)] = distLDAModel.topicDistributions
+    val docTopicDist: DataFrame = ldaTransformed.select("label","topicDistribution")
+    //docTopicDist.rdd.collect()foreach(println)
+
 
     //Create doc results from vector: convert docID back to string, convert vector of probabilities to array
     val docToTopicMixDF =
-      formatSparkLDADocTopicOutput(docTopicDist, documentDictionary, sqlContext)
+      formatSparkLDADocTopicOutput(docTopicDist, documentDictionary, spark)
 
     documentDictionary.unpersist()
 
@@ -139,9 +140,9 @@ object SpotLDAWrapper {
   def formatSparkLDAInput(docWordCount: RDD[SpotLDAInput],
                           documentDictionary: DataFrame,
                           wordDictionary: Map[String, Int],
-                          sqlContext: SQLContext): RDD[(Long, Vector)] = {
+                          spark: SparkSession): RDD[(Long, Vector)] = {
 
-    import sqlContext.implicits._
+    import spark.implicits._
 
     val getWordId = {
       udf((word: String) => (wordDictionary(word)))
@@ -162,6 +163,7 @@ object SpotLDAWrapper {
     val wordCountsPerDoc: RDD[(Long, Iterable[(Int, Double)])]
     = wordCountsPerDocDF
       .select(DocumentNumber, WordNumber, WordNameWordCount)
+      .rdd
       .map({ case Row(documentId: Long, wordId: Int, wordCount: Int) => (documentId.toLong, (wordId, wordCount.toDouble)) })
       .groupByKey
 
@@ -183,14 +185,18 @@ object SpotLDAWrapper {
     val wordProbs: Seq[Array[Double]] = wordTopMat.transpose.toArray.grouped(n).toSeq
       .map(unnormProbs => unnormProbs.zipWithIndex.map({ case (u, j) => u / columnSums(j) }))
 
+    //val c = wordProbs.map(_.mkString("[",",","]"))
+    //c.foreach(println)
+
     wordProbs.zipWithIndex.map({ case (topicProbs, wordInd) => (wordMap(wordInd), topicProbs) }).toMap
   }
 
-  def formatSparkLDADocTopicOutput(docTopDist: RDD[(Long, Vector)], documentDictionary: DataFrame, sqlContext: SQLContext):
+  def formatSparkLDADocTopicOutput(docTopDist: DataFrame, documentDictionary: DataFrame, spark: SparkSession):
   DataFrame = {
-    import sqlContext.implicits._
+    import spark.implicits._
 
     val topicDistributionToArray = udf((topicDistribution: Vector) => topicDistribution.toArray)
+
     val documentToTopicDistributionDF = docTopDist.toDF(DocumentNumber, TopicProbabilityMix)
 
     documentToTopicDistributionDF

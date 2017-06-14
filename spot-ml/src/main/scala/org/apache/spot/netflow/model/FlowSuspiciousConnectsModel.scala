@@ -18,11 +18,10 @@
 package org.apache.spot.netflow.model
 
 import org.apache.log4j.Logger
-import org.apache.spark.SparkContext
 import org.apache.spark.sql.WideUDFs.udf
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
 import org.apache.spot.lda.SpotLDAWrapper
 import org.apache.spot.lda.SpotLDAWrapper.{SpotLDAInput, SpotLDAOutput}
@@ -58,7 +57,9 @@ class FlowSuspiciousConnectsModel(topicCount: Int,
                                   ipToTopicMix: DataFrame,
                                   wordToPerTopicProb: Map[String, Array[Double]]) {
 
-  def score(sc: SparkContext, sqlContext: SQLContext, flowRecords: DataFrame): DataFrame = {
+  def score(spark: SparkSession, flowRecords: DataFrame): DataFrame = {
+
+    val sc = spark.sparkContext
 
     val wordToPerTopicProbBC = sc.broadcast(wordToPerTopicProb)
 
@@ -83,7 +84,7 @@ class FlowSuspiciousConnectsModel(topicCount: Int,
 
     val scoreFunction = new FlowScoreFunction(topicCount, wordToPerTopicProbBC)
 
-
+    import org.apache.spark.sql.functions.udf
     val scoringUDF = udf((hour: Int,
                           srcIP: String,
                           dstIP: String,
@@ -132,8 +133,7 @@ object FlowSuspiciousConnectsModel {
   val ModelColumns = ModelSchema.fieldNames.toList.map(col)
 
 
-    def trainModel(sparkContext: SparkContext,
-                   sqlContext: SQLContext,
+    def trainModel(spark: SparkSession,
                    logger: Logger,
                    config: SuspiciousConnectsConfig,
                    inputRecords: DataFrame): FlowSuspiciousConnectsModel = {
@@ -144,8 +144,7 @@ object FlowSuspiciousConnectsModel {
     val selectedRecords = inputRecords.select(ModelColumns: _*)
 
 
-    val totalRecords = selectedRecords.unionAll(FlowFeedback.loadFeedbackDF(sparkContext,
-      sqlContext,
+    val totalRecords = selectedRecords.union(FlowFeedback.loadFeedbackDF(spark,
       config.feedbackFile,
       config.duplicationFactor))
 
@@ -167,28 +166,31 @@ object FlowSuspiciousConnectsModel {
 
     InvalidDataHandler.showAndSaveCorruptRecords(corruptRecords, config.hdfsScoredConnect, logger)
 
+      import spark.implicits._
+
     // Aggregate per-word counts at each IP
     val srcWordCounts = dataWithWords
       .filter(dataWithWords(SourceWord).notEqual(InvalidDataHandler.WordError))
       .select(SourceIP, SourceWord)
       .map({ case Row(sourceIp: String, sourceWord: String) => (sourceIp, sourceWord) -> 1 })
+      .rdd
       .reduceByKey(_ + _)
 
     val dstWordCounts = dataWithWords
       .filter(dataWithWords(DestinationWord).notEqual(InvalidDataHandler.WordError))
       .select(DestinationIP, DestinationWord)
       .map({ case Row(destinationIp: String, destinationWord: String) => (destinationIp, destinationWord) -> 1 })
+      .rdd
       .reduceByKey(_ + _)
 
     val ipWordCounts =
-      sparkContext.union(srcWordCounts, dstWordCounts)
+      spark.sparkContext.union(srcWordCounts, dstWordCounts)
         .reduceByKey(_ + _)
         .map({ case ((ip, word), count) => SpotLDAInput(ip, word, count) })
 
 
       val SpotLDAOutput(ipToTopicMix, wordToPerTopicProb) =
-        SpotLDAWrapper.runLDA(sparkContext,
-          sqlContext,
+        SpotLDAWrapper.runLDA(spark,
           ipWordCounts,
           config.topicCount,
           logger,

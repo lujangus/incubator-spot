@@ -21,26 +21,31 @@
   */
 package org.apache.spot.testutils
 
-import org.apache.spark.SparkContext
-import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.{SparkSession, SQLContext, SQLImplicits}
 import org.scalatest.{BeforeAndAfter, FlatSpec}
 
 trait TestingSparkContextFlatSpec extends FlatSpec with BeforeAndAfter {
 
-  var sparkContext: SparkContext = null
-  var sqlContext : SQLContext = null
+  var spark: SparkSession = null
+
+
+  object internalImplicits extends SQLImplicits {
+    protected override def _sqlContext: SQLContext = spark.sqlContext
+  }
+
 
   before {
-    sparkContext = TestingSparkContext.sparkContext
-    sqlContext = new SQLContext(sparkContext)
+    spark = SparkSession.builder().appName("spot-ml-testing")
+      .master("local")
+      .config("", "")
+      .getOrCreate()
   }
 
   /**
     * Clean up after the test is done
     */
   after {
-    TestingSparkContext.cleanUp()
-    sparkContext = null
+    spark.stop()
   }
 
 }

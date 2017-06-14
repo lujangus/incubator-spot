@@ -31,7 +31,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
 
 
   "ecdf" should "work on an empty list" in {
-    val rddIn: RDD[Double] = sparkContext.parallelize(List(), numSlices = 3)
+    val rddIn: RDD[Double] = spark.sparkContext.parallelize(List(), numSlices = 3)
     val rddOut = Quantiles.computeEcdf(rddIn)
 
     val out = rddOut.collect()
@@ -40,7 +40,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "ecdf" should "work on a constant list" in {
-    val rddIn = sparkContext.parallelize(allOnes, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(allOnes, numSlices = 3)
     val rddOut = Quantiles.computeEcdf(rddIn)
 
     val out = rddOut.collect()
@@ -50,7 +50,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "ecdf" should "work on a split 50/50 list" in {
-    val rddIn = sparkContext.parallelize(onesAndTwos, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(onesAndTwos, numSlices = 3)
     val rddOut = Quantiles.computeEcdf(rddIn)
 
     val out = rddOut.collect()
@@ -61,7 +61,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "ecdf" should "work on count-to-ten list" in {
-    val rddIn = sparkContext.parallelize(countToTen, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(countToTen, numSlices = 3)
     val rddOut = Quantiles.computeEcdf(rddIn)
 
     val out = rddOut.collect()
@@ -80,7 +80,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "quantiles" should "work on an empty list" in {
-    val rddIn: RDD[Double] = sparkContext.parallelize(List(), numSlices = 3)
+    val rddIn: RDD[Double] = spark.sparkContext.parallelize(List(), numSlices = 3)
     val quantiles = Array(0.0, 0.5)
     val out = Quantiles.computeQuantiles(rddIn, quantiles)
 
@@ -90,7 +90,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "quantiles" should "work on all ones list" in {
-    val rddIn = sparkContext.parallelize(allOnes, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(allOnes, numSlices = 3)
     val quantiles = Array(0.0, 0.5)
     val out = Quantiles.computeQuantiles(rddIn, quantiles)
 
@@ -100,7 +100,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "quantiles" should "work on a 50/50 1s and 2s list" in {
-    val rddIn = sparkContext.parallelize(onesAndTwos, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(onesAndTwos, numSlices = 3)
     val quantiles = Array(0.0, 0.5)
     val out = Quantiles.computeQuantiles(rddIn, quantiles)
 
@@ -110,7 +110,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "quantiles" should "work on a 50/50 1s and 2s list with unbalanced thresholds" in {
-    val rddIn = sparkContext.parallelize(onesAndTwos, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(onesAndTwos, numSlices = 3)
     val quantiles = Array(0.0, 0.6, 0.99)
     val out = Quantiles.computeQuantiles(rddIn, quantiles)
 
@@ -121,7 +121,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "quantiles" should "work on a count-to-ten list" in {
-    val rddIn = sparkContext.parallelize(countToTen, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(countToTen, numSlices = 3)
     val quantiles = Array(0.0, 0.5)
     val out = Quantiles.computeQuantiles(rddIn, quantiles)
 
@@ -132,7 +132,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "deciles" should "work on a count-to-ten list" in {
-    val rddIn = sparkContext.parallelize(countToTen, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(countToTen, numSlices = 3)
     val out = Quantiles.computeDeciles(rddIn)
 
     out.length shouldBe 10
@@ -149,7 +149,7 @@ class QuantilesTest extends TestingSparkContextFlatSpec with Matchers {
   }
 
   "quintiles" should "work on a count-to-ten list" in {
-    val rddIn = sparkContext.parallelize(countToTen, numSlices = 3)
+    val rddIn = spark.sparkContext.parallelize(countToTen, numSlices = 3)
     val out = Quantiles.computeQuintiles(rddIn)
 
     out.length shouldBe 5
