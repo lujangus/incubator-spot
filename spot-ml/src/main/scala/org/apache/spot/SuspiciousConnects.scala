@@ -56,9 +56,12 @@ object SuspiciousConnects {
 
         val analysis = config.analysis
 
+        val warehouseLocation = "hdfs:///user/hive/warehouse/"
+
         val spark = SparkSession.builder
           .appName("Spot ML:  " + analysis + " suspicious connects analysis")
           .master("yarn")
+          .config("spark.sql.warehouse.dir", warehouseLocation)
           .enableHiveSupport()
           .getOrCreate()
 

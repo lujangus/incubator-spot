@@ -75,10 +75,14 @@ object ProxySuspiciousConnectsAnalysis {
 
     logger.info(indexDF.count.toString)
     logger.info("persisting data with indexes")
-
-    indexDF.createOrReplaceTempView("proxy_rank")
-    spark.sql("DROP TABLE IF EXISTS proxy_spark21")
-    spark.table("proxy_rank").write.saveAsTable("proxy_rank")
+    //indexDF.write.mode(SaveMode.Overwrite).saveAsTable("`proxy_rank`")
+    indexDF.createOrReplaceTempView("proxy_rank1")
+    indexDF.cache()
+    indexDF.show()
+    spark.sql("DROP TABLE IF EXISTS proxy_spark")
+    spark.table("proxy_rank1").write.mode(SaveMode.Overwrite).saveAsTable("proxy_rank")
+    //val resultsHive = spark.sql("SELECT rank FROM proxy_rank")
+    //resultsHive.show()
 
     //Inserted code to save scores
     /////////////////////////////////////////////////////////////////////////////////////

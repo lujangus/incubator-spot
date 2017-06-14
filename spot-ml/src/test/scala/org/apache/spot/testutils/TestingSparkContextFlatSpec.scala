@@ -15,10 +15,7 @@
  * limitations under the License.
  */
 
-/**
-  * THIS CODE WAS COPIED DIRECTLY FROM THE OPEN SOURCE PROJECT TAP (Trusted Analytics Platform)
-  * which has an Apache V2.0
-  */
+
 package org.apache.spot.testutils
 
 import org.apache.spark.sql.{SparkSession, SQLContext, SQLImplicits}
@@ -28,11 +25,9 @@ trait TestingSparkContextFlatSpec extends FlatSpec with BeforeAndAfter {
 
   var spark: SparkSession = null
 
-
   object internalImplicits extends SQLImplicits {
     protected override def _sqlContext: SQLContext = spark.sqlContext
   }
-
 
   before {
     spark = SparkSession.builder().appName("spot-ml-testing")
@@ -41,9 +36,6 @@ trait TestingSparkContextFlatSpec extends FlatSpec with BeforeAndAfter {
       .getOrCreate()
   }
 
-  /**
-    * Clean up after the test is done
-    */
   after {
     spark.stop()
   }
