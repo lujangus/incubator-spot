@@ -98,7 +98,7 @@ object SpotLDAWrapper {
         .setMaxIter(maxIterations)
         .setTopicConcentration(ldaBeta)
         .setDocConcentration(ldaAlpha)
-        .setOptimizer("online")
+        .setOptimizer("em")
 
     // If caller does not provide seed to lda, ie. ldaSeed is empty, lda is seeded automatically set to hash value of class name
 
