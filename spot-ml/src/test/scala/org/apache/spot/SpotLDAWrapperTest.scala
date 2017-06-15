@@ -101,8 +101,9 @@ class SpotLDAWrapperTest extends TestingSparkContextFlatSpec with Matchers {
         documentDictionary, wordDictionary, spark)
       val sparkLDAInArr: Array[(Long, Vector)] = sparkLDAInput.collect()
 
-      sparkLDAInArr shouldBe Array((0, Vectors.sparse(4, Array(0, 3), Array(8.0, 5.0))), (1, Vectors.sparse(4, Array
-      (1), Array(4.0))), (2, Vectors.sparse(4, Array(2), Array(2.0))))
+      sparkLDAInArr should contain(0, Vectors.sparse(4, Array(0, 3), Array(8.0, 5.0)))
+      sparkLDAInArr should contain(1, Vectors.sparse(4, Array(1), Array(4.0)))
+      sparkLDAInArr should contain(2, Vectors.sparse(4, Array(2), Array(2.0)))
     }
 
     "formatSparkLDADocTopicOuptut" should "return RDD[(String,Array(Double))] after converting doc results from vector: " +
@@ -126,12 +127,13 @@ class SpotLDAWrapperTest extends TestingSparkContextFlatSpec with Matchers {
 
       val sparkDocRes: DataFrame = formatSparkLDADocTopicOutput(docTopicDist, documentDictionary, spark)
 
-      import internalImplicits._
-      val documents = sparkDocRes.select(DocumentName).map(documentName => documentName.toString.replaceAll("\\[", "").replaceAll("\\]", "")).collect()
+      val documents = sparkDocRes.map({ case Row(documentName: String, docProbabilities: Seq[Double]) => (documentName,
+        docProbabilities)
+      }).collect
 
-      documents(0) should be("192.168.1.1")
-      documents(1) should be("10.10.98.123")
-      documents(2) should be("66.23.45.11")
+      documents should contain("192.168.1.1", Seq(0.15, 0.3, 0.5, 0.05))
+      documents should contain("10.10.98.123", Seq(0.25, 0.15, 0.4, 0.2))
+      documents should contain("66.23.45.11", Seq(0.4, 0.1, 0.3, 0.2))
 
     }
 

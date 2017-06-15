@@ -18,26 +18,25 @@
 
 package org.apache.spot.testutils
 
-import org.apache.spark.sql.{SparkSession, SQLContext, SQLImplicits}
+import org.apache.log4j.{Level, Logger}
+import org.apache.spark.sql.{SQLContext, SQLImplicits, SparkSession}
 import org.scalatest.{BeforeAndAfter, FlatSpec}
 
 trait TestingSparkContextFlatSpec extends FlatSpec with BeforeAndAfter {
 
-  var spark: SparkSession = null
+  var spark: SparkSession = TestingSparkContext.getSparkSession
 
   object internalImplicits extends SQLImplicits {
     protected override def _sqlContext: SQLContext = spark.sqlContext
   }
 
   before {
-    spark = SparkSession.builder().appName("spot-ml-testing")
-      .master("local")
-      .config("", "")
-      .getOrCreate()
+    spark = TestingSparkContext.getSparkSession
   }
 
   after {
-    spark.stop()
+    TestingSparkContext.cleanUp()
+    spark = null
   }
 
 }
