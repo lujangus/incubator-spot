@@ -26,6 +26,13 @@ RAWDATA_PATH=$2
 
 source /etc/spot.conf
 
+ITERATIONS2=1
+LDA_ALPHA2=1
+LDA_BETA2=1
+LDA_OPTIMIZER2='online'
+PRECISION2=1
+TOPIC_COUNT2=1
+
 # third argument if present will override default TOL from conf file
 
 TOL=1.1
@@ -52,7 +59,7 @@ rm -f ${LPATH}/*.{dat,beta,gamma,other,pkl} # protect the flow_scores.csv file
 
 hdfs dfs -rm -R -f ${HDFS_SCORED_CONNECTS}
 
-time spark-submit --class "org.apache.spot.SuspiciousConnects" \
+time spark2-submit --class "org.apache.spot.SuspiciousConnects" \
   --master yarn \
   --driver-memory ${SPK_DRIVER_MEM} \
   --conf spark.driver.maxResultSize=${SPK_DRIVER_MAX_RESULTS} \
@@ -75,13 +82,13 @@ time spark-submit --class "org.apache.spot.SuspiciousConnects" \
   --input ${RAWDATA_PATH}  \
   --dupfactor ${DUPFACTOR} \
   --feedback ${FEEDBACK_PATH} \
-  --ldatopiccount ${TOPIC_COUNT} \
+  --ldatopiccount ${TOPIC_COUNT2} \
   --scored ${HDFS_SCORED_CONNECTS} \
   --threshold ${TOL} \
   --maxresults ${MAXRESULTS} \
-  --ldamaxiterations 20 \
-  --ldaalpha ${LDA_ALPHA} \
-  --ldabeta ${LDA_BETA} \
-  --ldaoptimizer ${LDA_OPTIMIZER} \
-  --precision ${PRECISION} \
+  --ldamaxiterations ${ITERATIONS2} \
+  --ldaalpha ${LDA_ALPHA2} \
+  --ldabeta ${LDA_BETA2} \
+  --ldaoptimizer ${LDA_OPTIMIZER2} \
+  --precision ${PRECISION2} \
   $USER_DOMAIN_CMD

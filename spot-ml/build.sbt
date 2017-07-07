@@ -35,6 +35,8 @@ libraryDependencies += "com.github.scopt" %% "scopt" % "3.5.0"
 
 resolvers += Resolver.sonatypeRepo("public")
 
+test in assembly := {}
+
 val meta = """META.INF(.)*""".r
 
 mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) => {
@@ -51,6 +53,8 @@ mergeStrategy in assembly <<= (mergeStrategy in assembly) { (old) => {
   case x => MergeStrategy.first
 }
 }
+
+
 
 // super important with multiple tests running spark Contexts
 parallelExecution in Test := false

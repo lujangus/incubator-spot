@@ -19,8 +19,8 @@ package org.apache.spot.proxy
 
 import org.apache.log4j.Logger
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, SparkSession, Row, SaveMode}
 import org.apache.spot.SuspiciousConnects.SuspiciousConnectsAnalysisResults
 import org.apache.spot.SuspiciousConnectsArgumentParser.SuspiciousConnectsConfig
 import org.apache.spot.proxy.ProxySchema._
@@ -98,6 +98,43 @@ object ProxySuspiciousConnectsAnalysis {
 
     logger.info("Identifying outliers")
     val scoredProxyRecords = model.score(sparkSession, proxyRecords, config.precisionUtility)
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //Inserted code to save scores
+
+    logger.info("Entering Gustavo planet")
+
+    val newDF = scoredProxyRecords.select(Date, Time, ClientIP, Host, ReqMethod, Duration, ServerIP, SCBytes, CSBytes, Score, Word)
+    val newWithIndexMapRDD = newDF.orderBy(Score).rdd.zipWithIndex()
+    val newWithIndexRDD = newWithIndexMapRDD.map({case (row: Row, id: Long) => Row.fromSeq(row.toSeq ++ Array(id.toString))})
+
+    val newDFStruct = new StructType(
+      Array(
+        StructField("date", StringType),
+        StructField("time", StringType),
+        StructField("clientIp",StringType),
+        StructField("host",StringType),
+        StructField("reqMethod",StringType),
+        StructField("duration",IntegerType),
+        StructField("serverIp",StringType),
+        StructField("scbytes",IntegerType),
+        StructField("csbytes",IntegerType),
+        StructField("score",DoubleType),
+        StructField("word",StringType),
+        StructField("rank",StringType)))
+
+    val indexDF = sparkSession.createDataFrame(newWithIndexRDD, newDFStruct)
+
+    logger.info(indexDF.count.toString)
+    logger.info("persisting data with ranks")
+    //indexDF.createOrReplaceTempView("zips_table")
+    //sparkSession.sql("DROP TABLE IF EXISTS zips_hive_table")
+    //save as a hive table
+    //sparkSession.table("zips_table").write.mode(SaveMode.Overwrite).saveAsTable("zips_hive_table")
+
+    indexDF.write.mode(SaveMode.Overwrite).saveAsTable("`proxy_rank`")
+    //Inserted code to save scores
+    /////////////////////////////////////////////////////////////////////////////////////
 
     // take the maxResults least probable events of probability below the threshold and sort
 

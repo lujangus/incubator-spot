@@ -60,6 +60,8 @@ object SuspiciousConnects {
         val sparkSession = SparkSession.builder
           .appName("Spot ML:  " + analysis + " suspicious connects analysis")
           .master("yarn")
+          //.config("spark.sql.warehouse.dir", "hdfs:///gmsonipm01:8020/user/hive/warehouse")
+          .enableHiveSupport()
           .getOrCreate()
 
         val inputDataFrame = InputOutputDataHandler.getInputDataFrame(sparkSession, config.inputPath, logger)
